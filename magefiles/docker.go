@@ -15,5 +15,6 @@ func (d Docker) Build() {
 }
 
 func (d Docker) Push() {
+	mg.Deps(Docker.Build)
 	sh.RunV("docker", "push", "ghcr.io/mwmahlberg/unik-admission-controller:latest")
 }
