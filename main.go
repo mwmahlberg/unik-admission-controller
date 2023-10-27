@@ -100,9 +100,6 @@ func main() {
 
 func serve(logger *zap.Logger, handler ValidationHandlerV1) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.Header.Get("X-Request-ID")
-		logger.Debug("Received request", zap.String("request_id", id))
-		defer logger.Debug("Finished request", zap.String("request_id", id))
 
 		if r.Body == nil {
 			http.Error(w, "Please send a request body", http.StatusBadRequest)
@@ -120,7 +117,7 @@ func serve(logger *zap.Logger, handler ValidationHandlerV1) http.HandlerFunc {
 
 		rto, gvk, err := deserializer.Decode(buffer.Bytes(), nil, nil)
 		if err != nil {
-			logger.Error("Failed to decode request body", zap.String("request_id", id), zap.Error(err))
+			logger.Error("Failed to decode request body", zap.Error(err))
 			http.Error(w, fmt.Sprintf("Failed to decode request body: %s", err), http.StatusInternalServerError)
 			return
 		}
@@ -141,7 +138,7 @@ func serve(logger *zap.Logger, handler ValidationHandlerV1) http.HandlerFunc {
 		responseObj = responseAdmissionReview
 
 		if err := json.NewEncoder(w).Encode(responseObj); err != nil {
-			logger.Error("Failed to encode response", zap.String("request_id", id), zap.Error(err))
+			logger.Error("Failed to encode response", zap.Error(err))
 			http.Error(w, fmt.Sprintf("Failed to encode response: %s", err), http.StatusInternalServerError)
 			return
 		}
