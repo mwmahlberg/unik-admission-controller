@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"go.uber.org/zap"
@@ -120,7 +121,11 @@ func (h *admitHandlerV1) validate(ar admissionv1.AdmissionReview) *admissionv1.A
 
 	// Maybe the return values should be used, but it seems redundant to me
 	// at the moment.
-	_, _, _ = deserializer.Decode(ar.Request.Object.Raw, nil, &svc)
+	_, _, err := deserializer.Decode(ar.Request.Object.Raw, nil, &svc)
+
+	if err != nil {
+		l.DPanic("Failed to decode request object", zap.Error(err))
+	}
 
 	toSearch, present := svc.Annotations[AnnotationNcpSnatPool]
 
