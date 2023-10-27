@@ -57,7 +57,7 @@ func main() {
 	defer logger.Sync()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/validate", uuidMiddleware(logger.Named("request-id").With(zap.String("handler", "uuid")), serveValidate(logger.Named("validate").With(zap.String("handler", "validate")))))
+	mux.HandleFunc("/validate", serveValidate(logger.Named("validate").With(zap.String("handler", "validate"))))
 	ctx, cancel := context.WithCancel(context.Background())
 
 	srv := &http.Server{
