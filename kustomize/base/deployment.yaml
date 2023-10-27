@@ -1,0 +1,57 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: unik-admission-controller
+  labels:
+    app.kubernetes.io/name: unik-admission-controller
+    app.kubernetes.io/instance: unik-admission-controller
+    app.kubernetes.io/version: '1.0'
+    app.kubernetes.io/component: admission-controller
+    app.kubernetes.io/part-of: unik
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: unik-admission-controller
+      app.kubernetes.io/instance: unik-admission-controller
+      app.kubernetes.io/version: '1.0'
+      app.kubernetes.io/component: admission-controller
+      app.kubernetes.io/part-of: unik
+  template:
+    metadata:
+      labels:
+        # Add kubernetes.io labels
+        app.kubernetes.io/name: unik-admission-controller
+        app.kubernetes.io/instance: unik-admission-controller
+        app.kubernetes.io/version: '1.0'
+        app.kubernetes.io/component: admission-controller
+        app.kubernetes.io/part-of: unik
+    spec:
+      serviceAccountName: unik-admission-controller
+      volumes:
+        - name: certificate-data
+          secret:
+            secretName: unik-admission-controller-certificate
+      containers:
+        - name: unik-admission-controller
+          image: ghcr.io/mwmahlberg/unik-admission-controller:latest
+          volumeMounts:
+            - name: certificate-data
+              mountPath: /etc/webhook/certs
+              readOnly: true
+          args:
+            - '-addr=:8443'
+            - '-cert=/etc/webhook/certs/tls.crt'
+            - '-key=/etc/webhook/certs/tls.key'
+          ports:
+            - containerPort: 443
+              name: webhook
+              protocol: TCP
+          resources:
+            limits:
+              cpu: 200m
+              memory: 256Mi
+            requests:
+              cpu: 100m
+              memory: 128Mi

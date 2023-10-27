@@ -1,0 +1,23 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: unik-admission-controller
+  namespace: default
+spec:
+  secretName: unik-admission-controller-certificate
+  dnsNames:
+    - unik-admission-controller.default.svc
+    - unik-admission-controller-webhook.default.svc
+    - unik-admission-controller.default.svc.cluster.local
+  issuerRef:
+    name: selfsigned
+
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: selfsigned
+  namespace: default
+spec:
+  selfSigned: {}
