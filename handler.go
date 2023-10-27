@@ -21,7 +21,7 @@ type ValidationHandlerV1 interface {
 // AdmitHandler is a wrapper around an admission handler function.
 // Using it allows us to implement various versions of the admission API.
 type admitHandlerV1 struct {
-	clientset *kubernetes.Clientset
+	clientset kubernetes.Interface
 	logger    *zap.Logger
 }
 
