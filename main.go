@@ -24,6 +24,8 @@ import (
 var (
 	debug bool = false
 	addr  string
+	certFile string
+	keyFile  string
 
 	runtimeScheme = runtime.NewScheme()
 	codecFactory  = serializer.NewCodecFactory(runtimeScheme)
@@ -33,6 +35,8 @@ var (
 func init() {
 	flag.BoolVar(&debug, "debug", false, "enable debug mode")
 	flag.StringVar(&addr, "addr", ":9090", "address to listen on")
+	flag.StringVar(&certFile, "cert", "/etc/certs/tls.crt", "path to TLS certificate")
+	flag.StringVar(&keyFile, "key", "/etc/certs/tls.key", "path to TLS key")
 }
 
 func main() {
@@ -67,9 +71,10 @@ func main() {
 	}
 	srv.RegisterOnShutdown(func() { logger.Info("HTTP server shutdown complete") })
 	srv.RegisterOnShutdown(cancel)
+
 	go func() {
 		logger.Info("Starting HTTP server", zap.String("addr", addr), zap.String("protocol", "http"))
-		if err := srv.ListenAndServe(); err != nil {
+		if err := srv.ListenAndServeTLS(certFile, keyFile); err != nil {
 			logger.Fatal("Failed to start HTTP server", zap.Error(err))
 		}
 	}()
@@ -94,7 +99,6 @@ func serve(logger *zap.Logger, handler ValidationHandlerV1) http.HandlerFunc {
 		id := r.Header.Get("X-Request-ID")
 		logger.Debug("Received request", zap.String("request_id", id))
 		defer logger.Debug("Finished request", zap.String("request_id", id))
-		logger.Info("Validating Service", zap.String("request_id", id))
 
 		if r.Body == nil {
 			http.Error(w, "Please send a request body", http.StatusBadRequest)
