@@ -27,6 +27,40 @@ type admitHandlerV1 struct {
 
 var serviceRessource = metav1.GroupVersionResource{Version: "v1", Resource: "services"}
 
+type ValidationHandlerOption func(*admitHandlerV1) error
+
+func WithLogger(logger *zap.Logger) ValidationHandlerOption {
+	return func(h *admitHandlerV1) error {
+		if logger == nil {
+			return errors.New("logger is nil")
+		}
+		h.logger = logger
+		return nil
+	}
+}
+
+func WithClientset(clientset kubernetes.Interface) ValidationHandlerOption {
+	return func(h *admitHandlerV1) error {
+		if clientset == nil {
+			return errors.New("clientset is nil")
+		}
+		h.clientset = clientset
+		return nil
+	}
+}
+
+func NewValidationHandlerV1(options ...ValidationHandlerOption) (*admitHandlerV1, error) {
+	h := &admitHandlerV1{}
+	var err error
+	for _, option := range options {
+		if err = option(h); err != nil {
+			return nil, fmt.Errorf("error while applying option: %w", err)
+		}
+	}
+
+	return h, nil
+}
+
 func ValidationHandler(logger *zap.Logger) *admitHandlerV1 {
 	h := &admitHandlerV1{
 		logger: logger,
