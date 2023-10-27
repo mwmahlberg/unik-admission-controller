@@ -22,8 +22,8 @@ import (
 )
 
 var (
-	debug bool = false
-	addr  string
+	debug    bool = false
+	addr     string
 	certFile string
 	keyFile  string
 
@@ -33,6 +33,10 @@ var (
 )
 
 func init() {
+
+	// See https://github.com/kubernetes-sigs/controller-runtime/issues/1161
+	admissionv1.AddToScheme(runtimeScheme)
+
 	flag.BoolVar(&debug, "debug", false, "enable debug mode")
 	flag.StringVar(&addr, "addr", ":9090", "address to listen on")
 	flag.StringVar(&certFile, "cert", "/etc/certs/tls.crt", "path to TLS certificate")
@@ -126,6 +130,10 @@ func serve(logger *zap.Logger, handler ValidationHandlerV1) http.HandlerFunc {
 			return
 		}
 		var responseObj runtime.Object
+
+		// TODO: construct this in the handler
+		// and set the status code according to the decision
+		// made by the handler.
 		responseAdmissionReview := &admissionv1.AdmissionReview{}
 		responseAdmissionReview.SetGroupVersionKind(*gvk)
 		responseAdmissionReview.Response = handler.validate(*requestedAdmissionReview)
