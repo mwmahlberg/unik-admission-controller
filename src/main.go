@@ -19,6 +19,8 @@ import (
 	admissionv1 "k8s.io/api/admission/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 var (
@@ -30,6 +32,8 @@ var (
 	runtimeScheme = runtime.NewScheme()
 	codecFactory  = serializer.NewCodecFactory(runtimeScheme)
 	deserializer  = codecFactory.UniversalDeserializer()
+
+	clientset kubernetes.Interface
 )
 
 func init() {
@@ -41,10 +45,13 @@ func init() {
 	flag.StringVar(&addr, "addr", ":9090", "address to listen on")
 	flag.StringVar(&certFile, "cert", "/etc/certs/tls.crt", "path to TLS certificate")
 	flag.StringVar(&keyFile, "key", "/etc/certs/tls.key", "path to TLS key")
+
 }
 
 func main() {
 	flag.Parse()
+
+	// Setup logging
 	var cfg zapcore.EncoderConfig
 	var level zapcore.Level
 	if debug {
@@ -60,12 +67,31 @@ func main() {
 		panic("logger is nil")
 	}
 
+	// Setup clientset
+	var setupError error
+	config, setupError := rest.InClusterConfig()
+
+	if setupError != nil {
+		panic(setupError.Error())
+	}
+
+	clientset, setupError = kubernetes.NewForConfig(config)
+	if setupError != nil {
+		panic(setupError.Error())
+	}
+
 	logger.Info("Starting unik admission controller")
 	defer logger.Info("Exiting unik admission controller")
 	defer logger.Sync()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/validate", serveValidate(logger.Named("validate").With(zap.String("handler", "validate"))))
+
+	hl := logger.Named("handler").With(zap.String("handler", "validate"))
+	validator, err := NewValidationHandlerV1(WithLogger(hl), WithClientset(clientset))
+	if err != nil {
+		logger.Fatal("Failed to create validation handler", zap.Error(err))
+	}
+	mux.HandleFunc("/validate", serve(logger.Named("validate").With(zap.String("handler", "validate")), validator))
 	ctx, cancel := context.WithCancel(context.Background())
 
 	srv := &http.Server{
@@ -143,8 +169,4 @@ func serve(logger *zap.Logger, handler ValidationHandlerV1) http.HandlerFunc {
 			return
 		}
 	}
-}
-
-func serveValidate(logger *zap.Logger) http.HandlerFunc {
-	return serve(logger, ValidationHandler(logger))
 }

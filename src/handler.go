@@ -10,7 +10,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 )
 
 const AnnotationNcpSnatPool = "ncp/snat_pool"
@@ -60,27 +59,6 @@ func NewValidationHandlerV1(options ...ValidationHandlerOption) (*admitHandlerV1
 	}
 
 	return h, nil
-}
-
-func ValidationHandler(logger *zap.Logger) *admitHandlerV1 {
-	h := &admitHandlerV1{
-		logger: logger,
-	}
-
-	config, err := rest.InClusterConfig()
-
-	if err != nil {
-		logger.Panic("Could not create kubernetes client", zap.String("component", "in-cluster-config"), zap.Error(err))
-		return nil
-	}
-
-	clientset, err := kubernetes.NewForConfig(config)
-
-	if err != nil {
-		logger.Panic("Could not create kubernetes client", zap.String("component", "clientset"), zap.Error(err))
-	}
-	h.clientset = clientset
-	return h
 }
 
 // validate is the actual admission handler function.
