@@ -7,9 +7,7 @@ metadata:
 spec:
   secretName: unik-admission-controller-certificate
   dnsNames:
-    - unik-admission-controller.default.svc
     - unik-admission-controller-webhook.default.svc
-    - unik-admission-controller.default.svc.cluster.local
   issuerRef:
     name: selfsigned
 
