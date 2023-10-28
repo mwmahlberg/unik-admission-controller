@@ -6,5 +6,5 @@ import "github.com/magefile/mage/sh"
 
 // Build builds the binary
 func Build() {
-	sh.RunV("go", "build", "-o", "unik-admission-controller", ".")
+	sh.RunV("go", "build", ".")
 }
