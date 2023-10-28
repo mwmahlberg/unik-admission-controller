@@ -43,9 +43,9 @@ var (
 )
 
 func init() {
+	// See https://github.com/kubernetes-sigs/controller-runtime/issues/1161
 	admissionv1.AddToScheme(runtimeScheme)
 
-	// corev1.AddToScheme(runtimeScheme)
 }
 
 type ValidationHandlerV1 interface {

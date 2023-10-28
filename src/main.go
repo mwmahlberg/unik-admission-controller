@@ -49,8 +49,6 @@ var (
 
 func init() {
 
-	// See https://github.com/kubernetes-sigs/controller-runtime/issues/1161
-
 	flag.BoolVar(&debug, "debug", false, "enable debug mode")
 	flag.StringVar(&addr, "addr", ":9090", "address to listen on")
 	flag.StringVar(&certFile, "cert", "/etc/certs/tls.crt", "path to TLS certificate")
