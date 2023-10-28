@@ -1,5 +1,5 @@
 /*
- *     requesthandler.go is part of unik-k8s.
+ *     requesthandler.go is part of github.com/unik-k8s/admission-controller.
  *
  *     Copyright 2023 Markus W Mahlberg <07.federkleid-nagelhaut@icloud.com>
  *
