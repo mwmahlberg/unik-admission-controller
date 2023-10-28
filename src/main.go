@@ -1,11 +1,27 @@
+/*
+ *     main.go is part of unik-k8s.
+ *
+ *     Copyright 2023 Markus W Mahlberg <07.federkleid-nagelhaut@icloud.com>
+ *
+ *     Licensed under the Apache License, Version 2.0 (the "License");
+ *     you may not use this file except in compliance with the License.
+ *     You may obtain a copy of the License at
+ *
+ *         http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *     Unless required by applicable law or agreed to in writing, software
+ *     distributed under the License is distributed on an "AS IS" BASIS,
+ *     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *     See the License for the specific language governing permissions and
+ *     limitations under the License.
+ *
+ */
+
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"flag"
-	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -14,11 +30,10 @@ import (
 	"time"
 
 	zaplogfmt "github.com/jsternberg/zap-logfmt"
+	"github.com/unik-k8s/admission-controller/handler"
+	"github.com/unik-k8s/admission-controller/validator"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	admissionv1 "k8s.io/api/admission/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -29,17 +44,12 @@ var (
 	certFile string
 	keyFile  string
 
-	runtimeScheme = runtime.NewScheme()
-	codecFactory  = serializer.NewCodecFactory(runtimeScheme)
-	deserializer  = codecFactory.UniversalDeserializer()
-
 	clientset kubernetes.Interface
 )
 
 func init() {
 
 	// See https://github.com/kubernetes-sigs/controller-runtime/issues/1161
-	admissionv1.AddToScheme(runtimeScheme)
 
 	flag.BoolVar(&debug, "debug", false, "enable debug mode")
 	flag.StringVar(&addr, "addr", ":9090", "address to listen on")
@@ -87,11 +97,13 @@ func main() {
 	mux := http.NewServeMux()
 
 	hl := logger.Named("handler").With(zap.String("handler", "validate"))
-	validator, err := NewValidationHandlerV1(WithLogger(hl), WithClientset(clientset))
+
+	validator, err := validator.NewValidationHandlerV1(validator.WithLogger(hl), validator.WithClientset(clientset))
 	if err != nil {
 		logger.Fatal("Failed to create validation handler", zap.Error(err))
 	}
-	mux.HandleFunc("/validate", serve(logger.Named("validate").With(zap.String("handler", "validate")), validator))
+
+	mux.Handle("/validate", handler.AdmissionReviewRequesthandler(validator))
 	ctx, cancel := context.WithCancel(context.Background())
 
 	srv := &http.Server{
@@ -122,51 +134,4 @@ func main() {
 		return
 	}
 	defer os.Exit(0)
-}
-
-func serve(logger *zap.Logger, handler ValidationHandlerV1) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-
-		if r.Body == nil {
-			http.Error(w, "Please send a request body", http.StatusBadRequest)
-			return
-		} else if contentType := r.Header.Get("Content-Type"); contentType != "application/json" {
-			http.Error(w, fmt.Sprintf("Content-Type is %s, must be application/json", contentType), http.StatusBadRequest)
-			return
-		}
-
-		var buffer = bytes.NewBuffer(nil)
-		if _, err := buffer.ReadFrom(r.Body); err != nil {
-			http.Error(w, fmt.Sprintf("Failed to read request body: %s", err), http.StatusInternalServerError)
-			return
-		}
-
-		rto, gvk, err := deserializer.Decode(buffer.Bytes(), nil, nil)
-		if err != nil {
-			logger.Error("Failed to decode request body", zap.Error(err))
-			http.Error(w, fmt.Sprintf("Failed to decode request body: %s", err), http.StatusInternalServerError)
-			return
-		}
-		requestedAdmissionReview, ok := rto.(*admissionv1.AdmissionReview)
-		if !ok {
-			logger.Error("Expected v1.AdmissionReview", zap.Any("got", rto))
-			return
-		}
-		var responseObj runtime.Object
-
-		// TODO: construct this in the handler
-		// and set the status code according to the decision
-		// made by the handler.
-		responseAdmissionReview := &admissionv1.AdmissionReview{}
-		responseAdmissionReview.SetGroupVersionKind(*gvk)
-		responseAdmissionReview.Response = handler.validate(*requestedAdmissionReview)
-		responseAdmissionReview.Response.UID = requestedAdmissionReview.Request.UID
-		responseObj = responseAdmissionReview
-
-		if err := json.NewEncoder(w).Encode(responseObj); err != nil {
-			logger.Error("Failed to encode response", zap.Error(err))
-			http.Error(w, fmt.Sprintf("Failed to encode response: %s", err), http.StatusInternalServerError)
-			return
-		}
-	}
 }

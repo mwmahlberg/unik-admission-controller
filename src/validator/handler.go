@@ -1,21 +1,56 @@
-package main
+/*
+ *     handler.go is part of unik-k8s.
+ *
+ *     Copyright 2023 Markus W Mahlberg <07.federkleid-nagelhaut@icloud.com>
+ *
+ *     Licensed under the Apache License, Version 2.0 (the "License");
+ *     you may not use this file except in compliance with the License.
+ *     You may obtain a copy of the License at
+ *
+ *         http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *     Unless required by applicable law or agreed to in writing, software
+ *     distributed under the License is distributed on an "AS IS" BASIS,
+ *     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *     See the License for the specific language governing permissions and
+ *     limitations under the License.
+ *
+ */
+
+package validator
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"go.uber.org/zap"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/kubernetes"
 )
 
 const AnnotationNcpSnatPool = "ncp/snat_pool"
 
+var (
+	runtimeScheme = runtime.NewScheme()
+	codecFactory  = serializer.NewCodecFactory(runtimeScheme)
+	deserializer  = codecFactory.UniversalDeserializer()
+)
+
+func init() {
+	admissionv1.AddToScheme(runtimeScheme)
+
+	// corev1.AddToScheme(runtimeScheme)
+}
+
 type ValidationHandlerV1 interface {
-	validate(admissionv1.AdmissionReview) *admissionv1.AdmissionResponse
+	ValidateBytes(data []byte) *admissionv1.AdmissionReview
+	Validate(admissionv1.AdmissionReview) *admissionv1.AdmissionResponse
 }
 
 // AdmitHandler is a wrapper around an admission handler function.
@@ -23,6 +58,7 @@ type ValidationHandlerV1 interface {
 type admitHandlerV1 struct {
 	clientset kubernetes.Interface
 	logger    *zap.Logger
+	lock      sync.Mutex
 }
 
 var serviceRessource = metav1.GroupVersionResource{Version: "v1", Resource: "services"}
@@ -61,6 +97,27 @@ func NewValidationHandlerV1(options ...ValidationHandlerOption) (*admitHandlerV1
 	return h, nil
 }
 
+func (h *admitHandlerV1) ValidateBytes(data []byte) *admissionv1.AdmissionReview {
+	h.lock.Lock()
+	defer h.lock.Unlock()
+	rto, gvk, err := deserializer.Decode(data, nil, nil)
+	if err != nil {
+		panic(errors.New("failed to decode request object"))
+	}
+
+	if gvk.Group != admissionv1.GroupName || gvk.Version != "v1" || gvk.Kind != "AdmissionReview" {
+		panic(errors.New("unexpected group, version or kind"))
+	}
+	review, ok := rto.(*admissionv1.AdmissionReview)
+	if !ok {
+		panic(errors.New("expected v1.AdmissionReview"))
+
+	}
+	review.Response = h.Validate(*review)
+
+	return review
+}
+
 // validate is the actual admission handler function.
 // It checks if the request is for a service and if the service has the
 // annotation "ncp/snat_pool" set.
@@ -68,7 +125,7 @@ func NewValidationHandlerV1(options ...ValidationHandlerOption) (*admitHandlerV1
 // If the annotation is set and no other service with the same value exists,
 // the request is admitted.
 // TODO: Add AuditAnnotations to the response.
-func (h *admitHandlerV1) validate(ar admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
+func (h *admitHandlerV1) Validate(ar admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
 	l := h.logger.With(
 		zap.String("namespace", ar.Request.Namespace),
 		zap.String("kind", ar.Request.Kind.Kind),
@@ -135,8 +192,8 @@ func (h *admitHandlerV1) validate(ar admissionv1.AdmissionReview) *admissionv1.A
 				}
 			}
 		}
-		defer l.Info("Admitted request", zap.String("reason", "annotation value unique"))
 	}
+	defer l.Info("Admitted request", zap.String("reason", "annotation value unique"))
 	return &admissionv1.AdmissionResponse{
 		Allowed: true,
 	}
