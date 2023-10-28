@@ -1,5 +1,5 @@
 /*
- *     handler.go is part of unik-k8s.
+ *     validation.go is part of unik-k8s.
  *
  *     Copyright 2023 Markus W Mahlberg <07.federkleid-nagelhaut@icloud.com>
  *
@@ -53,9 +53,9 @@ type ValidationHandlerV1 interface {
 	Validate(admissionv1.AdmissionReview) *admissionv1.AdmissionResponse
 }
 
-// AdmitHandler is a wrapper around an admission handler function.
+// AdmitHandlerV1 is a wrapper around an admission handler function.
 // Using it allows us to implement various versions of the admission API.
-type admitHandlerV1 struct {
+type AdmitHandlerV1 struct {
 	clientset kubernetes.Interface
 	logger    *zap.Logger
 	lock      sync.Mutex
@@ -63,10 +63,10 @@ type admitHandlerV1 struct {
 
 var serviceRessource = metav1.GroupVersionResource{Version: "v1", Resource: "services"}
 
-type ValidationHandlerOption func(*admitHandlerV1) error
+type ValidationHandlerOption func(*AdmitHandlerV1) error
 
 func WithLogger(logger *zap.Logger) ValidationHandlerOption {
-	return func(h *admitHandlerV1) error {
+	return func(h *AdmitHandlerV1) error {
 		if logger == nil {
 			return errors.New("logger is nil")
 		}
@@ -76,7 +76,7 @@ func WithLogger(logger *zap.Logger) ValidationHandlerOption {
 }
 
 func WithClientset(clientset kubernetes.Interface) ValidationHandlerOption {
-	return func(h *admitHandlerV1) error {
+	return func(h *AdmitHandlerV1) error {
 		if clientset == nil {
 			return errors.New("clientset is nil")
 		}
@@ -85,8 +85,8 @@ func WithClientset(clientset kubernetes.Interface) ValidationHandlerOption {
 	}
 }
 
-func NewValidationHandlerV1(options ...ValidationHandlerOption) (*admitHandlerV1, error) {
-	h := &admitHandlerV1{}
+func NewValidationHandlerV1(options ...ValidationHandlerOption) (*AdmitHandlerV1, error) {
+	h := &AdmitHandlerV1{}
 	var err error
 	for _, option := range options {
 		if err = option(h); err != nil {
@@ -97,7 +97,7 @@ func NewValidationHandlerV1(options ...ValidationHandlerOption) (*admitHandlerV1
 	return h, nil
 }
 
-func (h *admitHandlerV1) ValidateBytes(data []byte) *admissionv1.AdmissionReview {
+func (h *AdmitHandlerV1) ValidateBytes(data []byte) *admissionv1.AdmissionReview {
 	h.lock.Lock()
 	defer h.lock.Unlock()
 	rto, gvk, err := deserializer.Decode(data, nil, nil)
@@ -125,7 +125,7 @@ func (h *admitHandlerV1) ValidateBytes(data []byte) *admissionv1.AdmissionReview
 // If the annotation is set and no other service with the same value exists,
 // the request is admitted.
 // TODO: Add AuditAnnotations to the response.
-func (h *admitHandlerV1) Validate(ar admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
+func (h *AdmitHandlerV1) Validate(ar admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
 	l := h.logger.With(
 		zap.String("namespace", ar.Request.Namespace),
 		zap.String("kind", ar.Request.Kind.Kind),
