@@ -1,20 +1,20 @@
-/* 
+/*
  *     validation_test.go is part of github.com/unik-k8s/admission-controller.
- *  
+ *
  *     Copyright 2023 Markus W Mahlberg <07.federkleid-nagelhaut@icloud.com>
- *  
+ *
  *     Licensed under the Apache License, Version 2.0 (the "License");
  *     you may not use this file except in compliance with the License.
  *     You may obtain a copy of the License at
- *  
+ *
  *         http://www.apache.org/licenses/LICENSE-2.0
- *  
+ *
  *     Unless required by applicable law or agreed to in writing, software
  *     distributed under the License is distributed on an "AS IS" BASIS,
  *     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  *     See the License for the specific language governing permissions and
  *     limitations under the License.
- *  
+ *
  */
 
 package validator
@@ -112,25 +112,12 @@ var serviceWithAnnotationOtherValue = corev1.Service{
 	ObjectMeta: metav1.ObjectMeta{
 		Name:        "with-annotation",
 		Namespace:   "default",
-		Annotations: map[string]string{AnnotationNcpSnatPool: "other"},
+		Annotations: map[string]string{AnnotationNcpSnatPool.String(): "other"},
 	},
 }
 
 type HandlerSuite struct {
 	suite.Suite
-}
-
-func (s *HandlerSuite) TestHandlerOld() {
-	tc := testclient.NewSimpleClientset()
-	tc.Fake.PrependReactor("list", "services",
-		func(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
-			return true, &corev1.ServiceList{}, nil
-		})
-	h, err := NewValidationHandlerV1(WithLogger(zaptest.NewLogger(s.T())), WithClientset(tc))
-	assert.NoError(s.T(), err)
-	assert.NotNil(s.T(), h)
-	response := h.Validate(ar)
-	assert.NotNil(s.T(), response)
 }
 
 func emptyServiceList(action k8stesting.Action) (handled bool, ret runtime.Object, err error) {
@@ -188,7 +175,17 @@ func (s *HandlerSuite) TestHandlerAdmission() {
 			tc := testclient.NewSimpleClientset()
 			tc.Fake.PrependReactor("list", "services", tC.reactor)
 
-			h, err := NewValidationHandlerV1(WithLogger(zaptest.NewLogger(t)), WithClientset(tc))
+			h, err := NewValidationHandlerV1(
+				WithLogger(zaptest.NewLogger(t)),
+				WithClientset(tc),
+				WithUniqueList(&UniqueList{
+					Annotations: map[Namespace][]Annotation{
+						ClusterScope: {
+							AnnotationNcpSnatPool,
+						},
+					},
+				}),
+			)
 			assert.NoError(t, err)
 			assert.NotNil(t, h)
 

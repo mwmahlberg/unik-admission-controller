@@ -1,0 +1,17 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-fourth
+  namespace: cert-manager
+  annotations:
+    ncp/snat_pool: 'foobar'
+spec:
+  ports:
+    - port: 8080
+      protocol: TCP
+      targetPort: 80
+  selector:
+    app: nginx
+status:
+  loadBalancer: {}

@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	"go.uber.org/zap"
+	"golang.org/x/exp/maps"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,7 +35,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 )
 
-const AnnotationNcpSnatPool = "ncp/snat_pool"
+const (
+	admittedRequest string = "Admitted request"
+)
 
 var (
 	runtimeScheme = runtime.NewScheme()
@@ -59,6 +62,7 @@ type AdmitHandlerV1 struct {
 	clientset kubernetes.Interface
 	logger    *zap.Logger
 	lock      sync.Mutex
+	unique    *UniqueList
 }
 
 var serviceRessource = metav1.GroupVersionResource{Version: "v1", Resource: "services"}
@@ -81,6 +85,16 @@ func WithClientset(clientset kubernetes.Interface) ValidationHandlerOption {
 			return errors.New("clientset is nil")
 		}
 		h.clientset = clientset
+		return nil
+	}
+}
+
+func WithUniqueList(unique *UniqueList) ValidationHandlerOption {
+	return func(h *AdmitHandlerV1) error {
+		if unique == nil {
+			return errors.New("unique is nil")
+		}
+		h.unique = unique
 		return nil
 	}
 }
@@ -127,21 +141,20 @@ func (h *AdmitHandlerV1) ValidateBytes(data []byte) *admissionv1.AdmissionReview
 // TODO: Add AuditAnnotations to the response.
 func (h *AdmitHandlerV1) Validate(ar admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
 	l := h.logger.With(
-		zap.String("namespace", ar.Request.Namespace),
-		zap.String("kind", ar.Request.Kind.Kind),
-		zap.String("name", ar.Request.Name),
-		zap.String("operation", string(ar.Request.Operation)),
-		zap.String("uid", string(ar.Request.UID)),
-		zap.String("annotation", AnnotationNcpSnatPool))
+		zap.String("request.namespace", ar.Request.Namespace),
+		zap.String("request.kind", ar.Request.Kind.Kind),
+		zap.String("request.name", ar.Request.Name),
+		zap.String("request.operation", string(ar.Request.Operation)),
+		zap.String("request.uid", string(ar.Request.UID)))
 
 	defer l.Sync()
 
 	l.Info("Validating request")
 
 	l.Debug("Request context",
-		zap.String("group", ar.Request.Kind.Group),
-		zap.String("version", ar.Request.Kind.Version),
-		zap.String("resource", ar.Request.Resource.String()))
+		zap.String("request.group", ar.Request.Kind.Group),
+		zap.String("request.version", ar.Request.Kind.Version),
+		zap.String("request.resource", ar.Request.Resource.String()))
 
 	if ar.Request.Resource != serviceRessource {
 		l.Warn("Request is not for a (supported) service", zap.String("group", ar.Request.Kind.Group), zap.String("version", ar.Request.Kind.Version), zap.String("kind", ar.Request.Kind.Kind))
@@ -152,49 +165,86 @@ func (h *AdmitHandlerV1) Validate(ar admissionv1.AdmissionReview) *admissionv1.A
 		}
 	}
 
-	svc := corev1.Service{}
+	svcToCheck := corev1.Service{}
 
 	// Maybe the return values should be used, but it seems redundant to me
 	// at the moment.
-	_, _, err := deserializer.Decode(ar.Request.Object.Raw, nil, &svc)
+	_, _, err := deserializer.Decode(ar.Request.Object.Raw, nil, &svcToCheck)
 
 	if err != nil {
 		l.DPanic("Failed to decode request object", zap.Error(err))
 	}
 
-	toSearch, present := svc.Annotations[AnnotationNcpSnatPool]
-
-	if !present {
-		defer l.Info("Admitted request", zap.String("reason", "annotation not present"))
-		return &admissionv1.AdmissionResponse{
-			UID:     ar.Request.UID,
-			Allowed: true,
-		}
+	response := &admissionv1.AdmissionResponse{
+		UID: ar.Request.UID,
+	}
+	if h.unique.HasDuplicate() {
+		l.Warn("Configuration has annotations protected in cluster scope and in namespace scope")
+		response.Warnings = []string{"unik: Configuration has annotations protected in cluster scope and in namespace scope"}
 	}
 
-	l.Info("Found annotation, checking existing services", zap.String("value", toSearch))
+	if !h.unique.HasProtectedAnnotations(maps.Keys(svcToCheck.Annotations)) {
+		l.Debug("No protected annotations")
+		defer l.Info(admittedRequest, zap.String("reason", "no protected annotations"))
+		response.Allowed = true
+		return response
+	}
 
-	services, _ := h.clientset.CoreV1().Services("").List(context.TODO(), metav1.ListOptions{})
-	for _, service := range services.Items {
+	// We only want to check if the annotation is marked as unique in the
+	// namespace of the service or in the cluster scope.
+	toCheck := h.unique.Filter(Namespace(svcToCheck.Namespace), maps.Keys(svcToCheck.Annotations))
 
-		// TODO: What happens if the service changes the annotation to one that is already
-		// used by a different service?
-		if service.Namespace == ar.Request.Namespace && service.Name == ar.Request.Name {
+	for _, scope := range toCheck.Scopes() {
+		if !h.unique.HasProtectedInNamespace(scope, svcToCheck.Annotations) {
+			l.Debug("No protected annotations in scope", zap.String("scope", string(scope)))
 			continue
 		}
-		for serviceAnnotation, serviceAnnotationValue := range service.Annotations {
-			if serviceAnnotation == AnnotationNcpSnatPool && serviceAnnotationValue == toSearch {
-				l.Info("Denied request", zap.String("reason", "annotation already present"), zap.String("service", fmt.Sprintf("%s/%s", service.Namespace, service.Name)))
-				return &admissionv1.AdmissionResponse{
-					UID:     ar.Request.UID,
-					Allowed: false,
-					Result:  &metav1.Status{Message: fmt.Sprintf("Service %s/%s already has the same value for annotation \"%s\": \"%s\"", service.Namespace, service.Name, AnnotationNcpSnatPool, toSearch)},
+		ns := string(scope)
+		if scope == ClusterScope {
+			ns = ""
+		}
+		l.Debug("Checking services in scope", zap.String("scope", string(scope)), zap.String("namespace", ns))
+		servicesInScope, _ := h.clientset.CoreV1().Services(ns).List(context.TODO(), metav1.ListOptions{})
+		for _, svcInScope := range servicesInScope.Items {
+			l.Debug("Checking service", zap.String("service", svcInScope.Name), zap.String("namespace", svcInScope.Namespace))
+			// We do not need to check the service to be admitted.
+			// We can do this because even when the service is changed,
+			// the value of the annotation will be checked against the
+			// values of the other services.
+			if svcInScope.Name == svcToCheck.Name && svcInScope.Namespace == svcToCheck.Namespace {
+				continue
+			}
+
+			for annotationKey, annotationValue := range svcToCheck.Annotations {
+				l.Debug("Checking annotation", zap.String("service", svcInScope.Name), zap.String("namespace", svcInScope.Namespace), zap.String("annotation", string(annotationKey)))
+				// Skip if the service from the scope does not have the
+				// annotation we want to check.
+				if _, ok := svcInScope.Annotations[annotationKey]; !ok {
+					l.Debug("Service does not have annotation",
+						zap.String("service", svcInScope.Name),
+						zap.String("annotation", string(annotationKey)),
+						zap.String("value", string(annotationValue)))
+					continue
+				}
+
+				if svcInScope.Annotations[annotationKey] == svcToCheck.Annotations[annotationKey] {
+					l.Warn("Denied request",
+						zap.String("reason", "service exists with the same value for annotation"),
+						zap.String("namespace", svcInScope.Namespace),
+						zap.String("service", svcInScope.Name),
+						zap.String("annotation", string(annotationKey)),
+						zap.String("value", string(annotationValue)))
+
+					response.Allowed = false
+					response.Result = &metav1.Status{
+						Message: fmt.Sprintf("Service %s/%s already has the same value for annotation \"%s\": %s", svcInScope.Namespace, svcInScope.Name, annotationKey, string(annotationValue)),
+					}
+					return response
 				}
 			}
 		}
 	}
-	defer l.Info("Admitted request", zap.String("reason", "annotation value unique"))
-	return &admissionv1.AdmissionResponse{
-		Allowed: true,
-	}
+	l.Info(admittedRequest, zap.String("reason", "no duplicate annotations"))
+	response.Allowed = true
+	return response
 }

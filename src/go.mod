@@ -7,6 +7,7 @@ require (
 	github.com/magefile/mage v1.15.0
 	github.com/stretchr/testify v1.8.2
 	go.uber.org/zap v1.26.0
+	golang.org/x/exp v0.0.0-20231006140011-7918f672742d
 	k8s.io/api v0.28.3
 	k8s.io/apimachinery v0.28.3
 	k8s.io/client-go v0.28.3

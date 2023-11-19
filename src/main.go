@@ -47,7 +47,18 @@ var (
 	clientset kubernetes.Interface
 )
 
+var (
+	unique = &validator.UniqueList{
+
+		Annotations: map[validator.Namespace][]validator.Annotation{},
+	}
+)
+
 func init() {
+
+	unique.Lock()
+	unique.Annotations[validator.ClusterScope] = []validator.Annotation{"ncp/snat_pool"}
+	defer unique.Unlock()
 
 	flag.BoolVar(&debug, "debug", false, "enable debug mode")
 	flag.StringVar(&addr, "addr", ":9090", "address to listen on")
@@ -55,6 +66,68 @@ func init() {
 	flag.StringVar(&keyFile, "key", "/etc/certs/tls.key", "path to TLS key")
 
 }
+
+// func updateConfig(data map[string]string) {
+// 	unique.Lock()
+// 	defer unique.Unlock()
+
+// 	for k, v := range data {
+// 		unique.Annotations[k] = strings.Split(v, ",")
+// 	}
+// }
+
+// func configListener(client kubernetes.Interface) chan<- bool {
+
+// 	done := make(chan bool)
+
+// 	// Load initial config
+// 	if cfg, err := client.CoreV1().ConfigMaps("default").
+// 		Get(context.Background(), "unik-config", metav1.GetOptions{}); err != nil && !errors.IsNotFound(err) {
+// 		panic(err.Error())
+// 	} else if errors.IsNotFound(err) {
+// 		updateConfig(map[string]string{})
+// 	} else {
+// 		updateConfig(cfg.Data)
+// 	}
+
+// 	go func() {
+// 		watcher, err := client.CoreV1().ConfigMaps("default").
+// 			Watch(context.Background(),
+// 				metav1.SingleObject(metav1.ObjectMeta{Name: "unik-config", Namespace: "default"}))
+// 		if err != nil {
+// 			panic(err.Error())
+// 		}
+
+// 		for {
+// 			select {
+// 			case <-done:
+// 				// Acquire the lock to ensure that the goroutine is not
+// 				// currently writing to the map or using it in any way.
+// 				unique.Lock()
+// 				defer unique.Unlock()
+// 				return
+// 			case event := <-watcher.ResultChan():
+// 				switch event.Type {
+// 				case "ADDED":
+// 					fallthrough
+// 				case "MODIFIED":
+// 					unique.Lock()
+// 					cfg := event.Object.(*corev1.ConfigMap).Data
+// 					for k, v := range cfg {
+// 						unique.Annotations[k] = strings.Split(v, ",")
+// 					}
+// 					unique.Unlock()
+// 				case "DELETED":
+// 					unique.Lock()
+// 					unique.Annotations = make(map[string][]string)
+// 					unique.Unlock()
+// 				}
+// 			}
+// 		}
+// 	}()
+
+// 	return done
+// }
 
 func main() {
 	flag.Parse()
@@ -92,11 +165,17 @@ func main() {
 	defer logger.Info("Exiting unik admission controller")
 	defer logger.Sync()
 
+	logger.Info("Starting config listener")
+	// clDone := configListener(clientset)
 	mux := http.NewServeMux()
 
 	hl := logger.Named("handler").With(zap.String("handler", "validate"))
 
-	validator, err := validator.NewValidationHandlerV1(validator.WithLogger(hl), validator.WithClientset(clientset))
+	validator, err := validator.NewValidationHandlerV1(
+		validator.WithLogger(hl),
+		validator.WithClientset(clientset),
+		validator.WithUniqueList(unique),
+	)
 	if err != nil {
 		logger.Fatal("Failed to create validation handler", zap.Error(err))
 	}
@@ -121,6 +200,7 @@ func main() {
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT)
 	s := <-sigs
+	// clDone <- true
 	logger.Info("Shutting down", zap.String("signal", s.String()))
 
 	gracefuleCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
