@@ -30,8 +30,8 @@ import (
 	"time"
 
 	zaplogfmt "github.com/jsternberg/zap-logfmt"
-	"github.com/unik-k8s/admission-controller/handler"
-	"github.com/unik-k8s/admission-controller/validator"
+	"github.com/mwmahlberg/unik-admission-controller/handler"
+	"github.com/mwmahlberg/unik-admission-controller/validator"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/client-go/kubernetes"

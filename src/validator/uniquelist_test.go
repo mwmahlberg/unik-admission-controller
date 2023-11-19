@@ -3,9 +3,9 @@ package validator_test
 import (
 	"testing"
 
+	"github.com/mwmahlberg/unik-admission-controller/validator"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
-	"github.com/unik-k8s/admission-controller/validator"
 )
 
 type UniqueListSuite struct {

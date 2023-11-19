@@ -1,4 +1,4 @@
-module github.com/unik-k8s/admission-controller
+module github.com/mwmahlberg/unik-admission-controller
 
 go 1.21.1
 

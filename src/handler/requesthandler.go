@@ -24,7 +24,7 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/unik-k8s/admission-controller/validator"
+	"github.com/mwmahlberg/unik-admission-controller/validator"
 )
 
 func AdmissionReviewRequesthandler(validator validator.ValidationHandlerV1) http.Handler {
